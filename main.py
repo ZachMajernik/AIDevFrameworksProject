@@ -14,7 +14,7 @@ items_db: dict[int, dict] = {}
 next_id: int = 1
 
 # Your endpoints here
-@app.get("/items", status_code=200)
+@app.get("/items", status_code=200) #ChatGPT said to add the status codes here so that if there is no error, this is the default status code if it worked
 def get_items():
     return items_db
 
