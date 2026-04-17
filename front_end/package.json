@@ -7,7 +7,8 @@
   "type": "commonjs",
   "main": "front_end.js",
   "scripts": {
-    "start": "nodemon front_end.js",
+    "start": "node front_end.js",
+    "dev": "nodemon front_end.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {

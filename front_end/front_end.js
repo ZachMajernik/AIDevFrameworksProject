@@ -1,7 +1,7 @@
 const express = require('express');
 const app = express();
 const port = 3000;
-const api = 8000;
+const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:8000';
 
 app.set('view engine', 'ejs');
 app.use(express.static('public'));
@@ -13,7 +13,7 @@ app.get('/', (req, res) => {
 });
 
 app.get('/items', (req, res) => {
-    let url = `http://localhost:${api}/items`;
+    let url = `${apiBaseUrl}/items`;
 
     fetch(url)
         .then(response => response.json())
@@ -31,7 +31,7 @@ app.get('/create-item', (req, res) => {
 app.post('/create-item', (req, res) => {
     let model = {name: req.body.name, description: req.body.description};
 
-    let url = `http://localhost:${api}/new-item`;
+    let url = `${apiBaseUrl}/new-item`;
     let headers = {
         headers: {
             "Content-Type": "application/json",
@@ -50,7 +50,7 @@ app.post('/create-item', (req, res) => {
 
 app.get('/edit-item/:id', (req, res) => {
     const itemId = req.params.id;
-    let url = `http://localhost:${api}/item/${itemId}`;
+    let url = `${apiBaseUrl}/item/${itemId}`;
 
     fetch(url)
         .then(response => response.json())
@@ -63,7 +63,7 @@ app.post('/edit-item/:id', (req, res) => {
     const itemId = req.params.id;
     let model = {name: req.body.name, description: req.body.description};
 
-    let url = `http://localhost:${api}/update-item/${itemId}`;
+    let url = `${apiBaseUrl}/update-item/${itemId}`;
     let headers = {
         headers: {
             "Content-Type": "application/json",
@@ -79,6 +79,30 @@ app.post('/edit-item/:id', (req, res) => {
             res.redirect('/items');
         });
 });
+
+app.get('/delete-item/:id', (req, res) => {
+    const itemId = req.params.id;
+    let url = `${apiBaseUrl}/delete-item/${itemId}`;
+
+    let headers = {
+        headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        method: "DELETE"
+    };
+    fetch(url, headers)
+        .then(response => {
+            if (response.status === 204) {
+                console.log("Item deleted with ID: " + itemId);
+                res.redirect('/items');
+            } else {
+                console.log("Failed to delete item with ID: " + itemId);
+                res.redirect('/items');
+            }
+        });
+});
+
 
 app.listen(port, () => {
     console.log(`Express is running on http://localhost:${port}/`);
