@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Items List - AI Dev Frameworks Project</title>
+</head>
+<body>
+    <%- include("partials/header") %>
+    <section>
+        <h1>Items List</h1>
+        <% if (itemList && itemList.length > 0) { %>
+            <% for(item of itemList) { %>
+                <div class="itemBox">
+                    <h2>Name: <%= item.name %></h2>
+                    <p>Description: <%= item.description %></p>
+                    <a href="/edit-item/<%= item.id %>">edit</a>
+                    <a href="/delete-item/<%= item.id %>">delete</a>
+                </div>
+            <% } %>
+        <% } else { %>
+            <p>No items found.</p>
+        <% } %>
+    </section>
+</body>
+</html>

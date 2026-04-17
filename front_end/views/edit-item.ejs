@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Create Item - AI Dev Frameworks Project</title>
+</head>
+<body>
+    <%- include("partials/header.ejs") %>
+    <section>
+        <% if(!isEdit) { %>
+            <h1>Create Item</h1>
+            <form action="/create-item" method="post">
+            <div>
+                <label for="name">Name</label>
+                <input id="name" name="name" type="text" placeholder="Name" required>
+            </div>
+            <div>
+                <label for="description">Description</label>
+                <input id="description" name="description" type="text" placeholder="Description" required>
+            </div>
+            <div>
+                <button type="submit">Submit</button>
+            </div>
+        </form>
+        <% } else { %>
+            <h1>Edit Item</h1>
+            <form action="/edit-item/<%= item.id %>" method="post">
+            <div>
+                <label for="name">Name</label>
+                <input id="name" name="name" type="text" placeholder="Name" value="<%= item.name %>" required>
+            </div>
+            <div>
+                <label for="description">Description</label>
+                <input id="description" name="description" type="text" placeholder="Description" value="<%= item.description %>" required>
+            </div>
+            <div>
+                <button type="submit">Submit</button>
+            </div>
+        </form>
+        <% } %>
+        
+    </section>
+</body>
+</html>
