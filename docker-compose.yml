@@ -13,6 +13,8 @@ services:
       - back_end
     networks:
       - AIDevFrameworksProject
+    volumes:
+      - ./front_end:/app/front_end
 
   back_end:
     build:
@@ -28,6 +30,8 @@ services:
       - db
     networks:
       - AIDevFrameworksProject
+    volumes:
+      - ./back_end:/app/back_end
   
   db:
     container_name: db
@@ -35,11 +39,8 @@ services:
     networks:
       - AIDevFrameworksProject
     volumes:
-      - db_data:/data/db
+      - ./mongo_data:/data/db
 
 networks:
   AIDevFrameworksProject:
     driver: bridge
-
-volumes:
-  db_data: {}

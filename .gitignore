@@ -210,3 +210,4 @@ __marimo__/
 # Node / Express (front_end)
 front_end/node_modules/
 front_end/.env
+mongo_data/
