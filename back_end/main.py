@@ -2,8 +2,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
+from DAL import ItemDAL
 
 app = FastAPI()
+dal = ItemDAL()
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,45 +20,33 @@ class Item(BaseModel):
     name: str
     description: Optional[str]
 
-# In-memory storage
-items_db: dict[int, dict] = {}
-next_id: int = 1
-
 # Your endpoints here
 @app.get("/items", status_code=200) #ChatGPT said to add the status codes here so that if there is no error, this is the default status code if it worked
-def get_items():
-    return [
-        {"id": item_id, "name": item["name"], "description": item.get("description")}
-        for item_id, item in items_db.items()
-    ]
+async def get_items():
+    return await dal.get_all_items()
 
 @app.get("/item/{id}", status_code=200)
-def get_item_by_id(id: int):
-    if id not in items_db:
+async def get_item_by_id(id: str):
+    item = await dal.get_item_by_id(id)
+    if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    return {"id": id, **items_db[id]}
+    return item
 
 @app.post("/new-item", status_code=201)
-def new_item(item: Item):
-    global next_id
-    items_db[next_id] = item.model_dump()
-    next_id += 1
-    return {"id": next_id - 1, **item.model_dump()}
+async def new_item(item: Item):
+    return await dal.create_item(item.name, item.description)
 
 @app.put("/update-item/{id}", status_code=200)
-def update_item(id: int, item: Item):
-    if id in items_db:
-        items_db[id] = item.model_dump()
-        return {"id": id, **item.model_dump()}
-    else:
+async def update_item(id: str, item: Item):
+    updated = await dal.update_item(id, item.name, item.description)
+    if updated is None:
         raise HTTPException(status_code=404, detail="Item not found")
+    return updated
 
 @app.delete("/delete-item/{id}", status_code=204)
-def delete_item(id: int):
-    if id in items_db:
-        del items_db[id]
-        return {"message": "Item deleted"}
-    else:
+async def delete_item(id: str):
+    deleted = await dal.delete_item(id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Item not found")
 
 # Run with: uvicorn main:app --reload

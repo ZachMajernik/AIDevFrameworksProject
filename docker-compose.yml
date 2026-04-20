@@ -18,6 +18,10 @@ services:
     build:
       context: .
       dockerfile: back_end/Dockerfile
+    environment:
+      - MONGODB_URI=mongodb://db:27017
+      - MONGODB_DB=AIDevFrameworksProject
+      - MONGODB_COLLECTION=items
     ports:
       - "8000:8000"
     depends_on:
@@ -30,7 +34,12 @@ services:
     image: mongo:latest
     networks:
       - AIDevFrameworksProject
+    volumes:
+      - db_data:/data/db
 
 networks:
   AIDevFrameworksProject:
     driver: bridge
+
+volumes:
+  db_data: {}
