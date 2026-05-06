@@ -12,6 +12,20 @@ app.get('/', (req, res) => {
     res.render('home');
 });
 
+app.get('/predict', (req, res) => {
+    res.render('predict');
+});
+
+app.post('/predict', (req, res) => {
+    fetch(`${apiBaseUrl}/predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body)
+    })
+        .then(r => r.json().then(data => res.status(r.status).json(data)))
+        .catch(() => res.status(502).json({ detail: 'Backend unavailable' }));
+});
+
 app.get('/items', (req, res) => {
     let url = `${apiBaseUrl}/items`;
 

@@ -87,3 +87,32 @@ The backend currently exposes these routes:
 - `POST /new-item` - create a new item
 - `PUT /update-item/{id}` - update an existing item
 - `DELETE /delete-item/{id}` - delete an item
+
+### POST /predict
+
+Classifies an Iris flower species from four petal/sepal measurements using a trained PyTorch neural network.
+
+**Request body** (JSON):
+```json
+{
+  "features": [sepal_length, sepal_width, petal_length, petal_width]
+}
+```
+
+All values are floats in centimetres. Example:
+```json
+{ "features": [5.1, 3.5, 1.4, 0.2] }
+```
+
+**Response** (JSON):
+```json
+{ "prediction": "setosa", "confidence": 0.9981 }
+```
+
+- `prediction` — one of `"setosa"`, `"versicolor"`, or `"virginica"`
+- `confidence` — softmax probability of the predicted class (0–1)
+
+**Errors:**
+- `422` — if `features` does not contain exactly 4 values
+
+The model is a two-layer fully-connected network (`4 → 16 → 3`) trained on the scikit-learn Iris dataset and loaded once at app startup. You can test it interactively at `http://localhost:8000/docs` (Swagger UI) or through the **Iris Predictor** page on the frontend at `http://localhost:3000/predict`.

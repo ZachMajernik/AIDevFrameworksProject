@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Iris Predictor - AI Dev Frameworks Project</title>
+</head>
+<body>
+    <%- include("partials/header") %>
+    <section>
+        <h1>Iris Flower Predictor</h1>
+        <p>Enter the four measurements (in cm) to classify the iris species.</p>
+
+        <form id="predictForm">
+            <label>Sepal Length (cm): <input type="number" step="0.1" name="sepal_length" value="5.1" required></label><br><br>
+            <label>Sepal Width (cm):  <input type="number" step="0.1" name="sepal_width"  value="3.5" required></label><br><br>
+            <label>Petal Length (cm): <input type="number" step="0.1" name="petal_length" value="1.4" required></label><br><br>
+            <label>Petal Width (cm):  <input type="number" step="0.1" name="petal_width"  value="0.2" required></label><br><br>
+            <button type="submit">Predict</button>
+        </form>
+
+        <div id="result" style="margin-top:1rem; display:none;">
+            <h2>Result</h2>
+            <p>Species: <strong id="predClass"></strong></p>
+            <p>Confidence: <strong id="predConf"></strong></p>
+        </div>
+
+        <div id="error" style="margin-top:1rem; color:red; display:none;"></div>
+    </section>
+
+    #copilot generated this script so that it can display the prediction results on the front end after receiving the response from the backend
+    <script>
+        document.getElementById('predictForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const form = e.target;
+            const features = [
+                parseFloat(form.sepal_length.value),
+                parseFloat(form.sepal_width.value),
+                parseFloat(form.petal_length.value),
+                parseFloat(form.petal_width.value)
+            ];
+
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('error').style.display  = 'none';
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ features })
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Prediction failed');
+                }
+
+                document.getElementById('predClass').textContent = data.prediction;
+                document.getElementById('predConf').textContent  = (data.confidence * 100).toFixed(1) + '%';
+                document.getElementById('result').style.display  = 'block';
+            } catch (err) {
+                document.getElementById('error').textContent     = 'Error: ' + err.message;
+                document.getElementById('error').style.display   = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
