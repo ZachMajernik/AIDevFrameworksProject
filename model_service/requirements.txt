@@ -1,0 +1,8 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+fastapi==0.135.3
+uvicorn==0.44.0
+torch==2.11.0+cpu
+numpy==2.4.4
+joblib==1.5.3
+scikit-learn
+pydantic==2.12.5

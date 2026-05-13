@@ -27,11 +27,27 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      model-service:
+        condition: service_healthy
+      db: 
+        condition: service_healthy
     networks:
       - AIDevFrameworksProject
     volumes:
       - ./back_end:/app/back_end
+
+  model-service:
+    build: ./model_service
+    ports:
+      - "8001:8001"
+    networks:
+      - AIDevFrameworksProject
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
   
   db:
     container_name: db
@@ -40,6 +56,12 @@ services:
       - AIDevFrameworksProject
     volumes:
       - ./mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 networks:
   AIDevFrameworksProject:
