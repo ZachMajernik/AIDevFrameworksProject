@@ -39,43 +39,60 @@ After startup:
 
 ## Architecture
 
-The system is split into three parts:
+The system is split into four services:
 
 - The Express frontend renders EJS views and handles browser requests.
-- The FastAPI backend handles the CRUD API and business logic.
+- The FastAPI backend handles the CRUD API, business logic, and forwards prediction requests.
+- The model service loads the trained PyTorch model and serves predictions.
 - MongoDB stores the item documents persistently.
 
-### ASCII diagram
+### Request flow
 
 ```text
 Browser
-	|
-	v
-Express Frontend (front_end, port 3000)
-	|
-	| HTTP requests to API_BASE_URL
-	v
-FastAPI Backend (back_end, port 8000)
-	|
-	| MongoDB queries through DAL.py
-	v
-MongoDB (db, Docker volume: db_data)
-```
+    |
+    v
+Express Frontend  (front_end,    port 3000)
+    |
+    | HTTP  API_BASE_URL=http://back_end:8000
+    v
+FastAPI Backend   (back_end,     port 8000)
+    |                   |
+    |  POST /predict    |  GET /items, POST /new-item, ...
+    v                   v
+Model Service     MongoDB
+(model-service,   (db, port 27017)
+ port 8001)       persisted in ./mongo_data
+    |
+    v
+ prediction response
+ { "prediction": "setosa", "confidence": 0.9981 }
 
+── Health checks ──────────────────────────────────────
+back_end      waits for  model-service /health  (HTTP 200)
+back_end      waits for  db             mongosh ping
 ## Project Structure
 
 ```text
 front_end/
-  front_end.js       Express app and routes
-  views/             EJS templates
-  public/            Static assets
+  front_end.js         Express app and routes
+  views/               EJS templates
+  public/              Static assets
 
 back_end/
-  main.py            FastAPI routes
-  DAL.py             MongoDB data access layer
+  main.py              FastAPI routes — delegates /predict to model-service
+  DAL.py               MongoDB data access layer
+  requirements.txt     Python dependencies
+  model.pth            Trained weights (kept for reference)
+  scaler.pkl           Feature scaler (kept for reference)
 
-docker-compose.yml   Multi-container app setup
-requirements.txt     Python dependencies
+model_service/
+  serve.py             FastAPI model server — loads model.pth + scaler.pkl
+  model.pth            Trained PyTorch weights
+  scaler.pkl           scikit-learn StandardScaler
+  requirements.txt     Python dependencies
+
+docker-compose.yml     Orchestrates all four services
 ```
 
 ## Endpoints
@@ -115,7 +132,7 @@ All values are floats in centimetres. Example:
 **Errors:**
 - `422` — if `features` does not contain exactly 4 values
 
-The model is a two-layer fully-connected network (`4 → 16 → 3`) trained on the scikit-learn Iris dataset and loaded once at app startup. You can test it interactively at `http://localhost:8000/docs` (Swagger UI) or through the **Iris Predictor** page on the frontend at `http://localhost:3000/predict`.
+The model is a two-layer fully-connected network (`4 → 16 → 3`) trained on the scikit-learn Iris dataset. It is loaded once at startup by `model-service` and served at `http://model-service:8001/predict`. The backend at `:8000` forwards prediction requests there and returns the result. You can test it interactively at `http://localhost:8000/docs` (Swagger UI) or through the **Iris Predictor** page on the frontend at `http://localhost:3000/predict`.
 
 ------ Docker LLM Model --------
 Model used: docker model pull ai/smollm2
