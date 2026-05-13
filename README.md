@@ -116,3 +116,12 @@ All values are floats in centimetres. Example:
 - `422` — if `features` does not contain exactly 4 values
 
 The model is a two-layer fully-connected network (`4 → 16 → 3`) trained on the scikit-learn Iris dataset and loaded once at app startup. You can test it interactively at `http://localhost:8000/docs` (Swagger UI) or through the **Iris Predictor** page on the frontend at `http://localhost:3000/predict`.
+
+------ Docker LLM Model --------
+Model used: docker model pull ai/smollm2
+
+Endpoint exposed: http://localhost:12434/engines/llama.cpp/v1/
+
+My Query: what is the meaning of life
+
+Response: The meaning of life, as defined by Hugging Face, is a very subjective and personal interpretation, and can vary greatly from person to person. It's essentially a reflection on the purpose and significance of one's life, and can involve finding meaning in various aspects of life.
