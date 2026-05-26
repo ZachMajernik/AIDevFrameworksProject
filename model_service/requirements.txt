@@ -6,3 +6,4 @@ numpy==2.4.4
 joblib==1.5.3
 scikit-learn
 pydantic==2.12.5
+requests==2.32.3
