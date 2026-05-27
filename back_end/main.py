@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 from DAL import ItemDAL
 from ollama import Client
+import json
 import os
 import requests
 
@@ -36,6 +37,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     conversation_history: list
+
+class AnalyzeRequest(BaseModel):
+    content: str
 
 # Your endpoints here
 @app.get("/items", status_code=200) #ChatGPT said to add the status codes here so that if there is no error, this is the default status code if it worked
@@ -113,6 +117,78 @@ def chat(request: ChatRequest):
         ]
         return ChatResponse(reply=reply, conversation_history=updated_history)
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Copilot helped make this enpoint with the functionality to strip and check json data and reprompt Ollama if necessary
+# It also came up with the system prompt and the few shot example
+@app.post("/analyze")
+def analyze(request: AnalyzeRequest):
+    system_prompt = """You are a data extraction assistant for an item catalog application.
+                        Analyze the provided item description and respond with ONLY valid JSON in this exact format:
+                        {
+                        "name": "item name",
+                        "categories": ["category1", "category2"],
+                        "tags": ["tag1", "tag2", "tag3"],
+                        "description": "one sentence summary"
+                        }
+                        Do not include any text, explanation, or markdown outside the JSON object."""
+
+    few_shot = """Example:
+                    Input: "Vintage wooden bookshelf with five shelves and a dark walnut finish. Some minor scratches but sturdy and holds a lot of books."
+                    Output: {"name": "Vintage wooden bookshelf", "categories": ["furniture", "storage"], "tags": ["wooden", "vintage", "bookshelf", "walnut"], "description": "A sturdy vintage walnut bookshelf with minor cosmetic wear but good storage capacity."}"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": few_shot + "\n\nNow analyze this:\n" + request.content}
+    ]
+
+    def call_ollama():
+        return ollama_client.chat(
+            model="llama3.2",
+            messages=messages,
+            options={"temperature": 0.2, "num_predict": 512}
+        )
+
+    try:
+        response = call_ollama()
+        raw = response.message.content
+
+        # Strip markdown code fences if the model wraps the JSON
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+
+        result = json.loads(raw)
+
+        required = ["name", "categories", "tags", "description"]
+        for field in required:
+            if field not in result:
+                raise ValueError(f"Missing field: {field}")
+
+        return result
+
+    except (json.JSONDecodeError, ValueError):
+        # Retry once with an explicit reminder
+        messages.append({"role": "user", "content": "Your response was not valid JSON. Reply with ONLY the JSON object, no other text."})
+        try:
+            response = call_ollama()
+            raw = response.message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            result = json.loads(raw.strip())
+            required = ["name", "categories", "tags", "description"]
+            for field in required:
+                if field not in result:
+                    raise ValueError(f"Missing field: {field}")
+            return result
+        except Exception:
+            raise HTTPException(status_code=422, detail="LLM returned invalid JSON after retry. Please try again.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

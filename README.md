@@ -142,3 +142,64 @@ Endpoint exposed: http://localhost:12434/engines/llama.cpp/v1/
 My Query: what is the meaning of life
 
 Response: The meaning of life, as defined by Hugging Face, is a very subjective and personal interpretation, and can vary greatly from person to person. It's essentially a reflection on the purpose and significance of one's life, and can involve finding meaning in various aspects of life.
+
+## LLM Endpoints (Ollama)
+
+Both LLM endpoints connect to an Ollama container running `llama3.2` via `http://ollama:11434`.
+
+### POST /chat
+
+Conversational chat endpoint. The assistant is restricted to paleontology and dinosaurs.
+
+**Request body:**
+```json
+{ "message": "What did T-Rex eat?", "conversation_history": [] }
+```
+
+**Response:**
+```json
+{ "reply": "...", "conversation_history": [{...}, {...}] }
+```
+
+The client is expected to pass `conversation_history` back on every request to maintain context across turns.
+
+**System message:** The assistant is prompted to act as an expert paleontologist who only answers questions about dinosaurs and prehistoric life, and politely declines all off-topic questions.
+
+---
+
+### POST /analyze
+
+Prompt-engineered endpoint that extracts structured JSON metadata from an item description.
+
+**Request body:**
+```json
+{ "content": "Vintage wooden bookshelf with a walnut finish. Minor scratches but very sturdy." }
+```
+
+**Response:**
+```json
+{
+  "name": "Vintage wooden bookshelf",
+  "categories": ["furniture", "storage"],
+  "tags": ["wooden", "vintage", "bookshelf", "walnut"],
+  "description": "A sturdy vintage walnut bookshelf with minor cosmetic wear."
+}
+```
+
+**System message:** The model is told it is a data extraction assistant for an item catalog and must respond with *only* a JSON object in the exact schema above — no surrounding text or markdown.
+
+**Why this system message?** Being explicit that the output must be only JSON (no prose) and naming the expected keys minimises the chance the model adds explanation text that would break `json.loads()`.
+
+**Few-shot example included in the prompt:**
+```
+Input: "Vintage wooden bookshelf with five shelves and a dark walnut finish. Some minor scratches but sturdy and holds a lot of books."
+Output: {"name": "Vintage wooden bookshelf", "categories": ["furniture", "storage"], "tags": ["wooden", "vintage", "bookshelf", "walnut"], "description": "A sturdy vintage walnut bookshelf with minor cosmetic wear but good storage capacity."}
+```
+The example shows the model exactly what the output should look like for item-catalog content.
+
+**Temperature:** `0.2` — keeps output deterministic and reduces the risk of the model improvising outside the schema.
+
+**Failure handling:**
+1. Strips markdown code fences (` ```json ... ``` `) before parsing, since models sometimes wrap JSON in them.
+2. On a `JSONDecodeError` or missing-field error, appends a correction message to the conversation and retries once.
+3. If the retry also fails, returns HTTP `422` with a descriptive error.

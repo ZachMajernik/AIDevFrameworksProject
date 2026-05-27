@@ -1,0 +1,61 @@
+# Copilot made the front end view for /analyze so that the user could input the prompt and they would be given the response as copyable json data
+
+<%- include('partials/header') %>
+
+<h1>Item Description Analyzer</h1>
+<p>Paste an item description below and the AI will extract structured metadata from it.</p>
+
+<textarea id="content-input" rows="5" cols="60" placeholder="e.g. Vintage wooden bookshelf with a dark walnut finish. Some minor scratches but very sturdy and holds a lot of books."></textarea>
+<br><br>
+<button id="analyze-btn" onclick="analyzeContent()">Analyze</button>
+<span id="loading" style="display:none;"> Analyzing...</span>
+
+<div id="result" style="display:none;">
+    <h2>Result</h2>
+    <button onclick="copyJson()">Copy JSON</button>
+    <pre id="res-json"></pre>
+</div>
+
+<div id="error" style="display:none; color:red;">
+    <p id="error-msg"></p>
+</div>
+
+<script>
+    async function analyzeContent() {
+        const content = document.getElementById('content-input').value.trim();
+        if (!content) return;
+
+        document.getElementById('result').style.display = 'none';
+        document.getElementById('error').style.display = 'none';
+        document.getElementById('loading').style.display = 'inline';
+        document.getElementById('analyze-btn').disabled = true;
+
+        try {
+            const res = await fetch('/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                document.getElementById('error-msg').textContent = 'Error: ' + (data.detail || 'Something went wrong.');
+                document.getElementById('error').style.display = 'block';
+            } else {
+                document.getElementById('res-json').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('result').style.display = 'block';
+            }
+        } catch (e) {
+            document.getElementById('error-msg').textContent = 'Error: Could not reach the server.';
+            document.getElementById('error').style.display = 'block';
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('analyze-btn').disabled = false;
+        }
+    }
+
+    function copyJson() {
+        const text = document.getElementById('res-json').textContent;
+        navigator.clipboard.writeText(text);
+    }
+</script>

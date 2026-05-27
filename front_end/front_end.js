@@ -20,6 +20,20 @@ app.get('/chat', (req, res) => {
     res.render('chat');
 });
 
+app.get('/analyze', (req, res) => {
+    res.render('analyze');
+});
+
+app.post('/analyze', (req, res) => {
+    fetch(`${apiBaseUrl}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body)
+    })
+        .then(r => r.json().then(data => res.status(r.status).json(data)))
+        .catch(() => res.status(502).json({ detail: 'Backend unavailable' }));
+});
+
 app.post('/chat', (req, res) => {
     fetch(`${apiBaseUrl}/chat`, {
         method: 'POST',
@@ -130,7 +144,6 @@ app.get('/delete-item/:id', (req, res) => {
             }
         });
 });
-
 
 app.listen(port, () => {
     console.log(`Express is running on http://localhost:${port}/`);
