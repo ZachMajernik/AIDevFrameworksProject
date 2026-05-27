@@ -3,10 +3,13 @@ from pydantic import BaseModel
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 from DAL import ItemDAL
+from ollama import Client
 import os
 import requests
 
 MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "http://model-service:8001")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
+ollama_client = Client(host=OLLAMA_HOST)
 
 app = FastAPI()
 dal = ItemDAL()
@@ -25,6 +28,14 @@ class Item(BaseModel):
 
 class PredictionRequest(BaseModel):
     features: list[float]
+
+class ChatRequest(BaseModel):
+    message: str
+    conversation_history: list = []
+
+class ChatResponse(BaseModel):
+    reply: str
+    conversation_history: list
 
 # Your endpoints here
 @app.get("/items", status_code=200) #ChatGPT said to add the status codes here so that if there is no error, this is the default status code if it worked
@@ -69,5 +80,40 @@ def predict(req: PredictionRequest):
         raise HTTPException(status_code=503, detail="Model service unavailable")
     except requests.exceptions.HTTPError:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest):
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an expert paleontologist specializing in dinosaurs. "
+                "You only answer questions related to paleontology, dinosaurs, and prehistoric life. DO NOT ANSWER QUESTIONS ABOUT ANY OTHER TOPIC. "
+                "If a question is unrelated to these topics, politely decline with \"I'm sorry, But I can only answer questions about paleontology and dinosaurs.\""
+            )
+        }
+    ]
+    messages.extend(request.conversation_history)
+    messages.append({"role": "user", "content": request.message})
+
+    try:
+        response = ollama_client.chat(
+            model="llama3.2",
+            messages=messages,
+            options={
+                "temperature": 0.5,
+                "num_predict": 512
+            }
+        )
+        reply = response.message.content
+
+        updated_history = request.conversation_history + [
+            {"role": "user", "content": request.message},
+            {"role": "assistant", "content": reply}
+        ]
+        return ChatResponse(reply=reply, conversation_history=updated_history)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Run with: uvicorn main:app --reload

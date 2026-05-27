@@ -1,0 +1,63 @@
+<%- include('partials/header') %>
+
+<h1>Dinosaur & Paleontology Chat</h1>
+<p>Ask me anything about dinosaurs and prehistoric life!</p>
+
+<div id="chat-box" style="height:400px; overflow-y:auto; border:1px solid black; padding:10px;">
+</div>
+
+<br>
+<input type="text" id="user-input" placeholder="Ask about dinosaurs..." style="width:60%;" />
+<button id="send-btn" onclick="sendMessage()">Send</button>
+<span id="loading" style="display:none;"> Thinking...</span>
+
+<script>
+    let conversationHistory = [];
+
+    function appendMessage(role, text) {
+        const box = document.getElementById('chat-box');
+        const p = document.createElement('p');
+        p.textContent = (role === 'user' ? 'You: ' : 'Dino Expert: ') + text;
+        if (role === 'assistant') {
+            p.style.fontWeight = 'bold';
+        }
+        box.appendChild(p);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('user-input');
+        const message = input.value.trim();
+        if (!message) return;
+
+        input.value = '';
+        appendMessage('user', message);
+
+        document.getElementById('loading').style.display = 'inline';
+        document.getElementById('send-btn').disabled = true;
+
+        try {
+            const res = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message, conversation_history: conversationHistory })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                appendMessage('assistant', 'Error: ' + (data.detail || 'Something went wrong.'));
+            } else {
+                conversationHistory = data.conversation_history;
+                appendMessage('assistant', data.reply);
+            }
+        } catch (e) {
+            appendMessage('assistant', 'Error: Could not reach the server.');
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('send-btn').disabled = false;
+        }
+    }
+
+    document.getElementById('user-input').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') sendMessage();
+    });
+</script>
