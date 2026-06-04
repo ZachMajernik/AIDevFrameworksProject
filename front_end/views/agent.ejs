@@ -1,0 +1,137 @@
+<%- include('partials/header') %>
+
+<h1>AI Agent</h1>
+<p>
+    Give the agent a task in plain English. It can <strong>search</strong> the item catalog,
+    <strong>create</strong> items (with your approval), and <strong>ask the knowledge base</strong>.
+    Try a compound task like:
+    <em>"Find all items about Triceratops, and if there aren't any, create one."</em>
+</p>
+
+<textarea id="task-input" rows="3" style="width:80%;"
+    placeholder="Describe a task for the agent..."></textarea>
+<br>
+<button id="run-btn" onclick="runAgent()">Run Agent</button>
+<span id="loading" style="display:none; font-weight:bold;"> Agent is working...</span>
+
+<div id="confirm-box" style="display:none; border:2px solid #b30000; background:#fff3f3; padding:12px; margin-top:14px;">
+    <h3 style="margin-top:0;">Confirmation required</h3>
+    <p>The agent wants to run a destructive tool. Approve to let it proceed.</p>
+    <pre id="confirm-detail" style="background:#fff; padding:8px; overflow-x:auto;"></pre>
+    <button onclick="resumeAgent('approved')" style="background:#1a7f1a; color:#fff;">Approve</button>
+    <button onclick="resumeAgent('denied')" style="background:#b30000; color:#fff;">Deny</button>
+</div>
+
+<h2 style="margin-top:20px;">Reasoning Trace</h2>
+<div id="trace" style="border:1px solid #888; padding:10px; min-height:60px; background:#fafafa;"></div>
+
+<h2>Final Result</h2>
+<div id="result" style="border:2px solid #1a4f8b; padding:12px; background:#eef4fb; min-height:40px;"></div>
+
+<script>
+    let agentState = { messages: [], steps: [], queue: [], pending: null };
+
+    function setLoading(on) {
+        document.getElementById('loading').style.display = on ? 'inline' : 'none';
+        document.getElementById('run-btn').disabled = on;
+    }
+
+    function pretty(value) {
+        if (typeof value === 'string') return value;
+        try { return JSON.stringify(value, null, 2); } catch (e) { return String(value); }
+    }
+
+    function renderTrace(steps) {
+        const box = document.getElementById('trace');
+        box.innerHTML = '';
+        if (!steps || steps.length === 0) {
+            box.textContent = '(no steps yet)';
+            return;
+        }
+        steps.forEach((s, i) => {
+            const div = document.createElement('div');
+            div.style.marginBottom = '10px';
+            div.style.paddingBottom = '8px';
+            div.style.borderBottom = '1px dashed #ccc';
+
+            if (s.type === 'tool_call') {
+                const color = s.error ? '#b30000' : '#1a4f8b';
+                div.innerHTML =
+                    '<strong style="color:' + color + ';">Step ' + (i + 1) +
+                    ' — called tool: ' + s.tool + '</strong>' +
+                    '<div><em>Arguments:</em></div><pre>' + pretty(s.input) + '</pre>' +
+                    '<div><em>Result:</em></div><pre>' + pretty(s.output) + '</pre>';
+            } else if (s.type === 'awaiting_confirmation') {
+                div.innerHTML =
+                    '<strong style="color:#b30000;">Step ' + (i + 1) +
+                    ' — awaiting confirmation for: ' + s.tool + '</strong>' +
+                    '<pre>' + pretty(s.input) + '</pre>';
+            } else if (s.type === 'final') {
+                div.innerHTML = '<strong>Step ' + (i + 1) + ' — agent finished thinking.</strong>';
+            } else {
+                div.innerHTML = '<pre>' + pretty(s) + '</pre>';
+            }
+            box.appendChild(div);
+        });
+    }
+
+    async function callAgent(payload) {
+        setLoading(true);
+        try {
+            const res = await fetch('/agent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                document.getElementById('result').textContent =
+                    'Error: ' + (data.detail || 'Something went wrong.');
+                return;
+            }
+            handleResponse(data);
+        } catch (e) {
+            document.getElementById('result').textContent = 'Error: Could not reach the server.';
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    function handleResponse(data) {
+        agentState.messages = data.messages || [];
+        agentState.steps = data.steps || [];
+        agentState.queue = data.queue || [];
+        agentState.pending = data.pending || null;
+        renderTrace(data.steps);
+
+        const confirmBox = document.getElementById('confirm-box');
+        if (data.status === 'needs_confirmation') {
+            document.getElementById('confirm-detail').textContent =
+                data.pending.tool + '\n' + pretty(data.pending.input);
+            confirmBox.style.display = 'block';
+            document.getElementById('result').textContent = '(waiting for your approval...)';
+        } else {
+            confirmBox.style.display = 'none';
+            document.getElementById('result').textContent = data.result || '(no result)';
+        }
+    }
+
+    function runAgent() {
+        const task = document.getElementById('task-input').value.trim();
+        if (!task) return;
+        agentState = { messages: [], steps: [], queue: [], pending: null };
+        document.getElementById('result').textContent = '';
+        document.getElementById('trace').innerHTML = '';
+        callAgent({ task: task });
+    }
+
+    function resumeAgent(decision) {
+        document.getElementById('confirm-box').style.display = 'none';
+        callAgent({
+            messages: agentState.messages,
+            steps: agentState.steps,
+            queue: agentState.queue,
+            decision: decision
+        });
+    }
+</script>

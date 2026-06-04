@@ -24,6 +24,20 @@ app.get('/analyze', (req, res) => {
     res.render('analyze');
 });
 
+app.get('/agent', (req, res) => {
+    res.render('agent');
+});
+
+app.post('/agent', (req, res) => {
+    fetch(`${apiBaseUrl}/agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body)
+    })
+        .then(r => r.json().then(data => res.status(r.status).json(data)))
+        .catch(() => res.status(502).json({ detail: 'Backend unavailable' }));
+});
+
 app.post('/analyze', (req, res) => {
     fetch(`${apiBaseUrl}/analyze`, {
         method: 'POST',

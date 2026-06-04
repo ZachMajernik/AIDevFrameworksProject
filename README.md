@@ -80,7 +80,9 @@ front_end/
   public/              Static assets
 
 back_end/
-  main.py              FastAPI routes — delegates /predict to model-service
+  main.py              FastAPI routes — CRUD, /predict, /chat, /analyze, /ask, /agent
+  agent.py             Path A agent: tool schemas, tool dispatch, the loop, guardrails
+  function_calling_demo.py  Part 1 standalone function-calling demo
   DAL.py               MongoDB data access layer
   requirements.txt     Python dependencies
   model.pth            Trained weights (kept for reference)
@@ -104,6 +106,9 @@ The backend currently exposes these routes:
 - `POST /new-item` - create a new item
 - `PUT /update-item/{id}` - update an existing item
 - `DELETE /delete-item/{id}` - delete an item
+- `POST /ask` - RAG: answer a question grounded in retrieved catalog items
+- `POST /function-calling-demo` - Part 1 demo of the raw function-calling flow
+- `POST /agent` - run the AI agent on a task; returns result + reasoning trace
 
 ### POST /predict
 
@@ -203,3 +208,233 @@ The example shows the model exactly what the output should look like for item-ca
 1. Strips markdown code fences (` ```json ... ``` `) before parsing, since models sometimes wrap JSON in them.
 2. On a `JSONDecodeError` or missing-field error, appends a correction message to the conversation and retries once.
 3. If the retry also fails, returns HTTP `422` with a descriptive error.
+
+---
+
+### POST /ask (RAG)
+
+A lightweight Retrieval-Augmented Generation endpoint. It **retrieves** the
+most relevant catalog items from MongoDB (ranked by keyword overlap with the
+question), **augments** the prompt with those items as context, and asks
+`llama3.2` to **generate** an answer grounded only in that context.
+
+**Request body:**
+```json
+{ "question": "What items are about bedding or sleeping?" }
+```
+
+**Response:**
+```json
+{
+  "answer": "Retrieved one item related to bedding: a Bed Mattress.",
+  "retrieved_items": [ { "id": "...", "name": "Bed Mattress", "description": "..." } ],
+  "num_retrieved": 1
+}
+```
+
+This is the endpoint the agent's `ask_knowledge_base` tool calls.
+
+---
+
+# [L8] AI Agent
+
+This app includes an **AI agent** that can take real actions against the app's
+own API — it doesn't just talk, it does things. The work is split across the
+three parts of the lab.
+
+## Path chosen: **Path A — build from scratch around the raw provider SDK**
+
+I built the agent loop by hand on top of the **Ollama** Python client
+(`llama3.2`), with no agent framework. I picked Path A for two reasons. First,
+the rest of this project already runs on Ollama (the `/chat`, `/analyze`, and
+`/ask` endpoints all use it), so reaching for LangChain or the Claude Agent SDK
+would have meant adding a second provider and a dependency the app didn't need.
+Second, Path A is the most educational: writing the loop myself forced me to see
+exactly what every framework hides — the model only *returns a structured
+request* to call a tool, and **my code** is what actually executes it and feeds
+the result back. There is no magic; it's a `while` loop, a dictionary of Python
+functions, and a list of messages.
+
+**What surprised me:** how much the agent's reliability depended on the *system
+prompt* rather than the code. My first version of the loop was correct, but
+`llama3.2` would *narrate* an action ("I will now create a Triceratops item…")
+and then stop, without ever emitting the `create_item` tool call — so the
+compound task silently failed. The fix wasn't in the loop at all; it was adding
+explicit rules to the system prompt ("NEVER describe an action instead of doing
+it — you MUST call the tool"). It drove home that with smaller local models,
+prompt engineering *is* part of the agent's control flow.
+
+## Architecture
+
+```text
+Browser (/agent page, agent.ejs)
+    |  POST /agent { task }                         resume: { messages, steps, pending, decision }
+    v
+Express frontend (front_end.js)  --- proxies --->  FastAPI backend  POST /agent (main.py)
+                                                        |
+                                                        v
+                                                   agent.py  run_agent()
+                                                        |  the hand-written loop:
+                                                        |    1. call llama3.2 with TOOL_SCHEMAS
+                                                        |    2. if no tool_calls -> final answer
+                                                        |    3. else execute each tool, append result
+                                                        |    4. repeat (capped by max_steps)
+                                                        v
+                              ┌─────────────────────────┼─────────────────────────┐
+                              v                         v                         v
+                        search_items              create_item              ask_knowledge_base
+                        GET /items                POST /new-item           POST /ask  (RAG)
+                              |                         |                         |
+                              └──────────── all call this app's own HTTP API ─────┘
+```
+
+The agent runs *inside* the backend and calls the backend's **own public HTTP
+endpoints** (via `SELF_API_URL`, default `http://localhost:8000`). That keeps
+the tools honest: they exercise the exact same API the rest of the app uses.
+
+## Part 1 — Function Calling Basics
+
+`back_end/function_calling_demo.py` is a standalone, runnable demonstration of
+raw function calling. It defines three simple tools (`get_weather`, `calculate`,
+`search_items`), sends a user message, lets the model decide which to call,
+**executes the function in our code**, feeds the result back, and returns the
+full conversation trace. It is also exposed as **`POST /function-calling-demo`**.
+
+Run it directly:
+```bash
+docker exec aidevframeworksproject-back_end-1 python function_calling_demo.py
+```
+
+Or hit the endpoint:
+```bash
+curl -X POST http://localhost:8000/function-calling-demo \
+  -H "Content-Type: application/json" -d '{"message": "What is 23 * 47?"}'
+```
+
+Example response showing the full flow (**user → model decides tool → tool
+executes → model responds**):
+```json
+{
+  "final_answer": "The result of 23 multiplied by 47 is 1081.",
+  "trace": [
+    { "step": "user_message",        "content": "What is 23 * 47?" },
+    { "step": "model_decides_tool",  "tool": "calculate", "arguments": { "expression": "23 * 47" } },
+    { "step": "tool_executed",       "tool": "calculate", "result": { "expression": "23 * 47", "result": 1081 } },
+    { "step": "model_final_answer",  "content": "The result of 23 multiplied by 47 is 1081." }
+  ]
+}
+```
+The key concept: the model never ran the multiplication. It only *asked* for
+`calculate({expression: "23 * 47"})`; our Python code ran it and returned `1081`.
+
+## Part 2 — The Agent and its Tools
+
+The agent (`back_end/agent.py`) wraps the function-calling API in a loop and
+gives the model three tools that connect to this app's API:
+
+| Tool | Description | API it calls |
+| --- | --- | --- |
+| `search_items` | Search the catalog by keyword; returns matching items. | `GET /items` (then keyword-filtered in code) |
+| `create_item` | Create a new catalog item. **Destructive — requires confirmation.** | `POST /new-item` |
+| `ask_knowledge_base` | Ask the RAG system a question, grounded in catalog items. | `POST /ask` |
+
+### POST /agent
+
+Accepts a task and returns the agent's `result` plus a `steps` reasoning trace.
+Because a destructive tool can pause the loop, the endpoint is also the resume
+point: the frontend passes back the serialized `messages`, `steps`, `queue`,
+and the user's `decision`.
+
+The `queue` matters when the model asks for **several tool calls in a single
+turn** — e.g. "create three items" produces three `create_item` calls at once.
+The loop drains them one at a time; each destructive call pauses for its own
+confirmation while the remaining calls ride along in `queue`, so none are
+dropped. (An earlier version only kept the first call and silently lost the
+rest — the queue fixes that.)
+
+**Request (start):**
+```json
+{ "task": "Find all items about Triceratops, and if there are none, create one." }
+```
+
+**Response (trace shows what it thought and called, in order):**
+```json
+{
+  "status": "needs_confirmation",
+  "result": null,
+  "steps": [
+    { "type": "tool_call", "tool": "search_items", "input": { "query": "Triceratops" },
+      "output": { "query": "Triceratops", "count": 0, "items": [] }, "error": false },
+    { "type": "awaiting_confirmation", "tool": "create_item",
+      "input": { "name": "Triceratops", "description": "" } }
+  ],
+  "pending": { "tool": "create_item", "input": { "name": "Triceratops", "description": "" } },
+  "messages": [ "...serialized transcript used to resume..." ]
+}
+```
+
+After the user clicks **Approve**, the frontend re-posts with `decision: "approved"`
+and the saved state; the agent executes `create_item`, then finishes:
+```json
+{
+  "status": "complete",
+  "result": "There were no items about Triceratops, so I created one.",
+  "steps": [
+    { "type": "tool_call", "tool": "search_items", "input": { "query": "Triceratops" }, "output": { "count": 0 } },
+    { "type": "tool_call", "tool": "create_item",  "input": { "name": "Triceratops", "description": "A three-horned dinosaur." },
+      "output": { "created": { "id": "...", "name": "Triceratops" } } },
+    { "type": "final", "content": "There were no items about Triceratops, so I created one." }
+  ]
+}
+```
+
+This is the **compound task** in action: the agent reasons across more than one
+tool call — it searches first, sees `count: 0`, and only then decides to create.
+
+### Making the conditional reliable with a small local model
+
+`llama3.2` (3B) is good at tool calling but, like most small models, it tends to
+**batch** all of a task's tool calls into one turn (it emits `search_items`
+*and* `create_item` together) rather than waiting to see the search result. Left
+alone that breaks the conditional two ways: it would create even when items
+already exist, and the batched `create_item` often arrives with empty/garbled
+arguments because the model is guessing before it has seen anything. The loop
+compensates in code so behavior is dependable regardless of model quirks:
+
+- **Conditional enforced in code.** While draining a turn's tool calls, if a
+  `search_items` returns `count > 0`, any `create_item` in that same turn is
+  **skipped** (recorded as a `skipped` step) instead of run. So "find X, and if
+  none create one" never creates when X already exists.
+- **Argument fill-in.** Before a `create_item` runs, missing fields are filled:
+  the `name` defaults to the search query (the subject of the task) and a
+  non-empty `description` is supplied if the model didn't give one. When the user
+  names items explicitly (e.g. "create a dumbbell and a kettlebell"), the model's
+  own names and descriptions are used as-is.
+- **Argument sanitizing + text-call fallback.** Tool arguments are normalized
+  (the model sometimes nests the schema into a value), and if the model writes a
+  tool call as plain text instead of a real call, it is parsed back into one.
+
+## Part 3 — Frontend and Guardrails
+
+**Frontend** (`/agent`, `front_end/views/agent.ejs`): a text box for the task, a
+**loading indicator** ("Agent is working…"), a **Reasoning Trace** panel that
+shows every tool the agent called, the arguments it used, and what each tool
+returned, and a separate **Final Result** panel. When the agent pauses on a
+destructive action, a red **confirmation box** appears with the intended call
+and **Approve / Deny** buttons.
+
+**Guardrails (all three required ones implemented):**
+
+| Guardrail | Why it matters | How it's done here |
+| --- | --- | --- |
+| **Max iterations** | A model can loop forever (search → search → search…), burning time and tokens. | The loop is capped by `DEFAULT_MAX_STEPS` (8). Past the cap it stops and returns the trace so far instead of spinning. |
+| **Tool confirmation** | `create_item` writes to the database; auto-running it would let the agent mutate data with no human in the loop. | Tools in `DESTRUCTIVE_TOOLS` pause the loop *before* executing. The endpoint returns `status: "needs_confirmation"` with the intended call; nothing is written until the user clicks **Approve**. **Deny** injects a "user denied" result so the model can adapt. |
+| **Error handling** | Tools fail — the API is down, the model passes bad arguments. A raw stack trace would crash the loop. | Every tool runs inside `_execute_tool`, which catches HTTP errors, connection errors, and bad arguments and returns a **plain-text error string**. That string is fed back to the model, which can read words and recover — it can't recover from a crash. |
+
+## How to run
+
+```bash
+docker compose up --build
+```
+Then open **http://localhost:3000/agent** and give the agent a task such as:
+*"Find all items about Triceratops, and if there aren't any, create one."*

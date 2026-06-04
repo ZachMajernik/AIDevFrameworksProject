@@ -8,6 +8,9 @@ import json
 import os
 import requests
 
+import agent as agent_module
+from function_calling_demo import run_function_calling_demo
+
 MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "http://model-service:8001")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://ollama:11434")
 ollama_client = Client(host=OLLAMA_HOST)
@@ -40,6 +43,20 @@ class ChatResponse(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     content: str
+
+class AskRequest(BaseModel):
+    question: str
+
+class FunctionCallDemoRequest(BaseModel):
+    message: str
+
+class AgentRequest(BaseModel):
+    task: Optional[str] = None
+    messages: list = []
+    steps: list = []
+    queue: list = []
+    decision: Optional[str] = None
+    max_steps: int = agent_module.DEFAULT_MAX_STEPS
 
 # Your endpoints here
 @app.get("/items", status_code=200) #ChatGPT said to add the status codes here so that if there is no error, this is the default status code if it worked
@@ -191,5 +208,76 @@ def analyze(request: AnalyzeRequest):
             raise HTTPException(status_code=422, detail="LLM returned invalid JSON after retry. Please try again.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ask")
+async def ask(request: AskRequest):
+    items = await dal.get_all_items()
+    question_words = {w for w in request.question.lower().split() if len(w) > 2}
+
+    def score(item):
+        text = ((item.get("name") or "") + " " + (item.get("description") or "")).lower()
+        return sum(1 for w in question_words if w in text)
+
+    ranked = sorted(items, key=score, reverse=True)
+    retrieved = [it for it in ranked if score(it) > 0][:5]
+    if not retrieved:
+        retrieved = ranked[:3]
+
+    if retrieved:
+        context = "\n".join(
+            f"- {it.get('name', 'Unnamed')}: {it.get('description') or 'No description.'}"
+            for it in retrieved
+        )
+    else:
+        context = "(The catalog is currently empty.)"
+
+    system_prompt = (
+        "You are a knowledge-base assistant for an item catalog. Answer the "
+        "user's question using ONLY the catalog items provided as context. "
+        "If the context does not contain the answer, say so plainly rather than "
+        "inventing details."
+    )
+    user_prompt = f"Context items:\n{context}\n\nQuestion: {request.question}"
+
+    try:
+        response = ollama_client.chat(
+            model="llama3.2",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            options={"temperature": 0.3, "num_predict": 512},
+        )
+        return {
+            "answer": response.message.content,
+            "retrieved_items": retrieved,
+            "num_retrieved": len(retrieved),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/function-calling-demo")
+def function_calling_demo(request: FunctionCallDemoRequest):
+    try:
+        return run_function_calling_demo(request.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/agent")
+def agent_endpoint(request: AgentRequest):
+    if not request.task and not request.messages:
+        raise HTTPException(status_code=422, detail="Provide a 'task' to start the agent.")
+    try:
+        return agent_module.run_agent(
+            task=request.task,
+            messages=request.messages,
+            steps=request.steps,
+            queue=request.queue,
+            decision=request.decision,
+            max_steps=request.max_steps,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Run with: uvicorn main:app --reload
